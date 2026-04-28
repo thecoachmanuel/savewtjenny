@@ -18,7 +18,9 @@ async function requireAdmin() {
     .eq("id", data.user.id)
     .maybeSingle<{ role: string | null; first_name: string | null; last_name: string | null }>();
 
-  if (data.user.email === "admin@savewithjenny.com" && profile.data?.role !== "admin") {
+  const isAdminEmail = data.user.email === "admin@savewithjenny.com";
+
+  if (isAdminEmail && profile.data?.role !== "admin") {
     const admin = createSupabaseAdminClient();
     await admin.from("profiles").update({ role: "admin" }).eq("id", data.user.id);
     const refreshed = await supabase
@@ -31,7 +33,7 @@ async function requireAdmin() {
     }
   }
 
-  if (profile.data?.role !== "admin") redirect("/app/home");
+  if (!isAdminEmail && profile.data?.role !== "admin") redirect("/app/home");
 
   return {
     name:
