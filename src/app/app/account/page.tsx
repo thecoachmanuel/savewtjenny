@@ -45,7 +45,6 @@ export default async function AccountPage() {
               width={64}
               height={64}
               className="h-16 w-16 rounded-full object-cover"
-              unoptimized
             />
           ) : (
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-app-bg text-[18px] font-semibold text-app-fg">
@@ -53,7 +52,7 @@ export default async function AccountPage() {
             </div>
           )}
           <div className="mt-3 text-[14px] font-semibold text-app-fg">
-            {(profile.first_name ?? "Tyler") + " " + (profile.last_name ?? "Jacob")}
+            {(profile.first_name ?? "Member") + (profile.last_name ? ` ${profile.last_name}` : "")}
           </div>
           <div className="mt-1 text-[12px] text-app-muted">{user.email}</div>
         </div>

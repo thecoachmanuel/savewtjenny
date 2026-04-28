@@ -2,6 +2,7 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
 import { Card, Chip, Divider } from "@/components/ui";
+import { formatMoney } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type GroupRow = {
@@ -21,6 +22,7 @@ type MemberRow = {
   user_id: string;
   role: string;
   position: number;
+  joined_at: string;
   profiles: {
     first_name: string | null;
     last_name: string | null;
@@ -49,7 +51,7 @@ export default async function GroupDetailPage({
 
   const membersResult = await supabase
     .from("group_members")
-    .select("user_id,role,position,profiles:profiles(first_name,last_name,avatar_url)")
+    .select("user_id,role,position,joined_at,profiles:profiles(first_name,last_name,avatar_url)")
     .eq("group_id", id)
     .order("position", { ascending: true })
     .limit(25)
@@ -59,11 +61,46 @@ export default async function GroupDetailPage({
     user_id: m.user_id,
     role: m.role,
     position: m.position,
+    joined_at: m.joined_at,
     profile: m.profiles,
   }));
 
-  const currencySymbol = group.currency === "NGN" ? "₦" : group.currency;
-  const contributionDisplay = `${currencySymbol}${Number(group.contribution_amount).toFixed(2)}`;
+  const latestMessage = await supabase
+    .from("group_messages")
+    .select("created_at")
+    .eq("group_id", id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ created_at: string }>();
+
+  const announcementTime = latestMessage.data?.created_at
+    ? new Date(latestMessage.data.created_at).toLocaleTimeString("en-NG", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "-";
+
+  const contributionDisplay = formatMoney(Number(group.contribution_amount), group.currency ?? "NGN");
+
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData.user?.id ?? null;
+  const myMember = userId ? members.find((m) => m.user_id === userId) ?? null : null;
+
+  const myPaidCyclesResult =
+    userId
+      ? await supabase
+          .from("contributions")
+          .select("id", { count: "exact", head: true })
+          .eq("group_id", group.id)
+          .eq("user_id", userId)
+          .eq("status", "paid")
+      : null;
+  const myPaidCycles = myPaidCyclesResult?.count ?? 0;
+
+  const payoutEstimate = formatMoney(
+    Number(group.contribution_amount) * Math.max(members.length, 1),
+    group.currency ?? "NGN",
+  );
 
   const hasCover = Boolean(group.cover_bucket && group.cover_path);
 
@@ -81,7 +118,7 @@ export default async function GroupDetailPage({
           <Card className="px-4 py-3">
             <div className="flex items-center justify-between">
               <div className="text-[13px] font-semibold text-app-fg">Announcements</div>
-              <div className="text-[11px] text-app-muted">12:45 PM</div>
+              <div className="text-[11px] text-app-muted">{announcementTime}</div>
             </div>
             <div className="mt-2 text-[12px] text-app-muted">
               {members.length} members
@@ -104,7 +141,6 @@ export default async function GroupDetailPage({
                         width={40}
                         height={40}
                         className="h-10 w-10 rounded-xl object-cover"
-                        unoptimized
                       />
                     ) : (
                       <div className="h-10 w-10 rounded-xl bg-app-bg" />
@@ -125,7 +161,12 @@ export default async function GroupDetailPage({
                       </div>
                     </div>
                   </div>
-                  <div className="text-[11px] text-app-muted">12:45 PM</div>
+                  <div className="text-[11px] text-app-muted">
+                    {new Date(m.joined_at).toLocaleDateString("en-NG", {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </div>
                 </div>
               </Card>
             );
@@ -163,23 +204,27 @@ export default async function GroupDetailPage({
               </div>
               <div className="rounded-2xl border border-app-border bg-white px-3 py-3">
                 <div className="text-app-muted">Cycles Completed</div>
-                <div className="mt-1 font-semibold text-app-fg">2 of {group.total_cycles}</div>
+                <div className="mt-1 font-semibold text-app-fg">
+                  {Math.min(myPaidCycles, group.total_cycles)} of {group.total_cycles}
+                </div>
               </div>
               <div className="rounded-2xl border border-app-border bg-white px-3 py-3">
                 <div className="text-app-muted">Position</div>
-                <div className="mt-1 font-semibold text-app-fg">5th in line</div>
+                <div className="mt-1 font-semibold text-app-fg">
+                  {myMember ? `#${myMember.position}` : "-"}
+                </div>
               </div>
               <div className="rounded-2xl border border-app-border bg-white px-3 py-3">
                 <div className="text-app-muted">Payout</div>
-                <div className="mt-1 font-semibold text-app-fg">{currencySymbol}1,500.00</div>
+                <div className="mt-1 font-semibold text-app-fg">{payoutEstimate}</div>
               </div>
               <div className="rounded-2xl border border-app-border bg-white px-3 py-3">
                 <div className="text-app-muted">Deadline Date</div>
-                <div className="mt-1 font-semibold text-app-fg">4th of every month</div>
+                <div className="mt-1 font-semibold text-app-fg">Every {group.cycle_frequency}</div>
               </div>
               <div className="rounded-2xl border border-app-border bg-white px-3 py-3">
                 <div className="text-app-muted">Next Contribution</div>
-                <div className="mt-1 font-semibold text-app-fg">In 2 weeks</div>
+                <div className="mt-1 font-semibold text-app-fg">{contributionDisplay}</div>
               </div>
             </div>
 

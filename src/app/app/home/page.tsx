@@ -1,11 +1,22 @@
 import Link from "next/link";
 import { Bell, ChevronDown, Eye, Plus } from "lucide-react";
 import { Button, Card } from "@/components/ui";
+import { formatMoney } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type Group = {
   id: string;
   name: string;
+  currency: string;
+  contribution_amount: number;
+  total_cycles: number;
+};
+
+type MessageRow = {
+  id: string;
+  message: string;
+  created_at: string;
+  profiles: { first_name: string | null; last_name: string | null } | null;
 };
 
 export default async function HomePage() {
@@ -15,6 +26,8 @@ export default async function HomePage() {
 
   let firstName = "there";
   let activeGroup: Group | null = null;
+  let paidCycles = 0;
+  let recentMessages: MessageRow[] = [];
 
   const profileResult = await supabase
     .from("profiles")
@@ -27,13 +40,40 @@ export default async function HomePage() {
   }
 
   const groupsResult = await supabase
-    .from("groups")
-    .select("id,name")
-    .limit(1);
+    .from("group_members")
+    .select("group_id, groups:groups(id,name,currency,contribution_amount,total_cycles)")
+    .eq("user_id", user.id)
+    .order("joined_at", { ascending: true })
+    .limit(1)
+    .maybeSingle<{
+      group_id: string;
+      groups: Group | null;
+    }>();
 
-  if (!groupsResult.error && groupsResult.data?.[0]) {
-    activeGroup = groupsResult.data[0] as Group;
+  if (!groupsResult.error && groupsResult.data?.groups) {
+    activeGroup = groupsResult.data.groups;
+
+    const paidCyclesResult = await supabase
+      .from("contributions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("group_id", activeGroup.id)
+      .eq("status", "paid");
+    paidCycles = paidCyclesResult.count ?? 0;
+
+    const messagesResult = await supabase
+      .from("group_messages")
+      .select("id,message,created_at,profiles:profiles(first_name,last_name)")
+      .eq("group_id", activeGroup.id)
+      .order("created_at", { ascending: false })
+      .limit(2)
+      .returns<MessageRow[]>();
+    recentMessages = messagesResult.data ?? [];
   }
+
+  const contributionAmount = activeGroup ? Number(activeGroup.contribution_amount) : 0;
+  const contributionCurrency = activeGroup?.currency ?? "NGN";
+  const formattedContribution = formatMoney(contributionAmount, contributionCurrency);
 
   return (
     <div className="px-5 pt-[calc(18px+env(safe-area-inset-top))]">
@@ -64,8 +104,7 @@ export default async function HomePage() {
         </div>
         <div className="mt-2 flex items-center justify-center gap-2">
           <div className="text-[36px] font-semibold tracking-tight text-app-fg">
-            $250
-            <span className="text-[16px] text-app-muted">.00</span>
+            {formattedContribution}
           </div>
           <button
             className="flex h-9 w-9 items-center justify-center rounded-full bg-app-bg"
@@ -79,14 +118,14 @@ export default async function HomePage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-full border border-app-border bg-white text-[12px] font-semibold text-app-fg">
-                5th
+                {Math.min(paidCycles + 1, activeGroup?.total_cycles ?? 1)}x
               </div>
               <div>
                 <div className="text-[13px] font-semibold text-app-fg">
-                  Next contribution in 1 week
+                  Next contribution
                 </div>
                 <div className="mt-0.5 text-[12px] text-app-muted">
-                  2 of 6 cycles completed.
+                  {Math.min(paidCycles, activeGroup?.total_cycles ?? 0)} of {activeGroup?.total_cycles ?? 0} cycles completed.
                 </div>
               </div>
             </div>
@@ -94,9 +133,18 @@ export default async function HomePage() {
           </div>
         </div>
 
-        <Button className="mt-4 w-full" variant="outline">
-          Send contribution
-        </Button>
+        {activeGroup ? (
+          <Link
+            href={`/app/contribute?purpose=group_contribution&group_id=${encodeURIComponent(activeGroup.id)}`}
+            className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-xl border border-app-border bg-white px-4 text-[14px] font-medium text-app-fg transition-colors hover:bg-app-bg active:bg-app-bg"
+          >
+            Send contribution
+          </Link>
+        ) : (
+          <Button className="mt-4 w-full" variant="outline" disabled>
+            Send contribution
+          </Button>
+        )}
       </Card>
 
       <div className="mt-6">
@@ -125,41 +173,56 @@ export default async function HomePage() {
                 <div className="h-10 w-10 rounded-xl bg-app-bg" />
                 <div>
                   <div className="text-[13px] font-semibold text-app-fg">
-                    Announcements
+                    {activeGroup?.name ?? "No group yet"}
                   </div>
                   <div className="mt-0.5 text-[12px] text-app-muted">
-                    6 members
+                    {recentMessages[0]?.message
+                      ? recentMessages[0].message
+                      : activeGroup
+                        ? "No messages yet."
+                        : "Join a group to start chatting."}
                   </div>
                 </div>
               </div>
-              <div className="text-[11px] text-app-muted">12:45 PM</div>
+              <div className="text-[11px] text-app-muted">
+                {recentMessages[0]?.created_at
+                  ? new Date(recentMessages[0].created_at).toLocaleTimeString("en-NG", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "-"}
+              </div>
             </div>
           </Card>
 
-          <Card className="px-4 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-app-bg" />
-                <div>
-                  <div className="flex items-center gap-2">
+          {recentMessages[1] ? (
+            <Card className="px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-app-bg" />
+                  <div>
                     <div className="text-[13px] font-semibold text-app-fg">
-                      David Mensah
+                      {(recentMessages[1].profiles?.first_name ?? "Member") +
+                        (recentMessages[1].profiles?.last_name
+                          ? ` ${recentMessages[1].profiles.last_name}`
+                          : "")}
                     </div>
-                    <div className="rounded-full bg-app-bg px-2 py-0.5 text-[10px] font-semibold text-app-primary">
-                      Admin
+                    <div className="mt-0.5 text-[12px] text-app-muted">
+                      {recentMessages[1].message}
                     </div>
-                  </div>
-                  <div className="mt-0.5 text-[12px] text-app-muted">
-                    You are the next in line to receive the...
                   </div>
                 </div>
+                <div className="text-[11px] text-app-muted">
+                  {new Date(recentMessages[1].created_at).toLocaleTimeString("en-NG", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </div>
               </div>
-              <div className="text-[11px] text-app-muted">12:45 PM</div>
-            </div>
-          </Card>
+            </Card>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
-

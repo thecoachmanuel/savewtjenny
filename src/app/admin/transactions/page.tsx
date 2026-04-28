@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui";
+import { formatKobo } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type TxRow = {
@@ -37,8 +38,7 @@ export default async function AdminTransactionsPage() {
           </thead>
           <tbody>
             {(data ?? []).map((t) => {
-              const currencySymbol = t.currency === "NGN" ? "₦" : t.currency ?? "";
-              const amount = t.amount_kobo ? `${currencySymbol}${(t.amount_kobo / 100).toFixed(2)}` : "-";
+              const amount = formatKobo(t.amount_kobo, t.currency ?? "NGN");
               return (
                 <tr key={t.reference} className="border-t border-app-border">
                   <td className="px-5 py-3 font-semibold text-app-fg">{t.reference}</td>
@@ -56,4 +56,3 @@ export default async function AdminTransactionsPage() {
     </Card>
   );
 }
-

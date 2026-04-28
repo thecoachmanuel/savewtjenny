@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui";
+import { formatMoney } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type GroupRow = {
@@ -42,7 +43,7 @@ export default async function AdminGroupsPage() {
               <tr key={g.id} className="border-t border-app-border">
                 <td className="px-5 py-3 font-semibold text-app-fg">{g.name}</td>
                 <td className="px-5 py-3 text-app-fg">
-                  {(g.currency === "NGN" ? "₦" : g.currency) + Number(g.contribution_amount).toFixed(2)}
+                  {formatMoney(Number(g.contribution_amount), g.currency ?? "NGN")}
                 </td>
                 <td className="px-5 py-3 text-app-fg">
                   {g.cycle_frequency} · {g.total_cycles} cycles
@@ -56,4 +57,3 @@ export default async function AdminGroupsPage() {
     </Card>
   );
 }
-

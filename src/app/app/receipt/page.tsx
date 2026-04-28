@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
 import { Button, Card, Divider } from "@/components/ui";
+import { formatMoney } from "@/lib/money";
 
 type VerifyResponse =
   | {
@@ -29,8 +30,7 @@ export default function ReceiptPage() {
 
   const formattedAmount = useMemo(() => {
     if (!state.data || state.data.ok !== true) return "";
-    const currency = state.data.currency === "NGN" ? "₦" : state.data.currency;
-    return `${currency}${Number(state.data.amount).toFixed(2)}`;
+    return formatMoney(Number(state.data.amount), state.data.currency ?? "NGN");
   }, [state.data]);
 
   useEffect(() => {
@@ -55,6 +55,15 @@ export default function ReceiptPage() {
   }, [reference]);
 
   const ok = state.data?.ok === true && state.data.status === "success";
+  const referenceNote = useMemo(() => {
+    if (!state.data || state.data.ok !== true) return "-";
+    const meta = (state.data.metadata ?? {}) as Record<string, unknown>;
+    const groupName = typeof meta.group_name === "string" ? meta.group_name : null;
+    const purpose = typeof meta.purpose === "string" ? meta.purpose : null;
+    if (purpose === "personal_savings") return "Personal savings";
+    if (groupName) return `Group contribution · ${groupName}`;
+    return "Contribution";
+  }, [state.data]);
 
   function onDownload() {
     if (!state.data || state.data.ok !== true) return;
@@ -132,7 +141,7 @@ export default function ReceiptPage() {
               </div>
               <div className="flex items-center justify-between">
                 <div className="text-app-muted">Reference note</div>
-                <div className="font-semibold text-app-fg">Cycle 1 contribution</div>
+                <div className="font-semibold text-app-fg">{referenceNote}</div>
               </div>
             </div>
           ) : null}
@@ -150,4 +159,3 @@ export default function ReceiptPage() {
     </div>
   );
 }
-

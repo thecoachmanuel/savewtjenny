@@ -164,7 +164,6 @@ export default function PersonalDetailsPage() {
                 width={96}
                 height={96}
                 className="h-24 w-24 rounded-full object-cover"
-                unoptimized
               />
             ) : (
               <div className="h-24 w-24 rounded-full bg-app-bg" />
@@ -259,4 +258,3 @@ export default function PersonalDetailsPage() {
     </div>
   );
 }
-
