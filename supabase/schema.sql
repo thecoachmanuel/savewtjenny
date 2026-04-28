@@ -256,6 +256,63 @@ create table if not exists public.contributions (
   created_at timestamptz not null default now()
 );
 
+create unique index if not exists contributions_paystack_reference_unique
+on public.contributions (paystack_reference)
+where paystack_reference is not null;
+
+create or replace function public.apply_personal_savings_payment(
+  p_user_id uuid,
+  p_goal_id uuid,
+  p_amount numeric,
+  p_currency text,
+  p_reference text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_goal public.personal_goals%rowtype;
+  v_new_saved numeric;
+begin
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'invalid_amount';
+  end if;
+
+  if p_reference is null or length(p_reference) < 1 then
+    raise exception 'invalid_reference';
+  end if;
+
+  select *
+  into v_goal
+  from public.personal_goals g
+  where g.id = p_goal_id and g.user_id = p_user_id
+  for update;
+
+  if not found then
+    raise exception 'goal_not_found';
+  end if;
+
+  if exists(select 1 from public.contributions c where c.paystack_reference = p_reference) then
+    return;
+  end if;
+
+  insert into public.contributions (user_id, personal_goal_id, amount, currency, status, paystack_reference)
+  values (p_user_id, p_goal_id, p_amount, coalesce(p_currency, 'NGN'), 'paid', p_reference);
+
+  v_new_saved := coalesce(v_goal.saved_amount, 0) + p_amount;
+
+  update public.personal_goals
+  set
+    saved_amount = v_new_saved,
+    status = case when v_new_saved >= v_goal.target_amount then 'completed' else v_goal.status end
+  where id = p_goal_id and user_id = p_user_id;
+end;
+$$;
+
+grant execute on function public.apply_personal_savings_payment(uuid, uuid, numeric, text, text) to authenticated;
+
 alter table public.contributions enable row level security;
 
 drop policy if exists contributions_select_own on public.contributions;
@@ -337,4 +394,3 @@ values
   ('avatars', 'avatars', true),
   ('kyc', 'kyc', false)
 on conflict (id) do nothing;
-

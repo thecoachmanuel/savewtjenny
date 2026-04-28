@@ -89,16 +89,80 @@ export async function GET(request: Request) {
       const groupId = typeof meta.group_id === "string" ? meta.group_id : null;
       const goalId = typeof meta.goal_id === "string" ? meta.goal_id : null;
 
-      if (userId && (purpose === "group_contribution" || purpose === "personal_savings")) {
-        await admin.from("contributions").insert({
-          user_id: userId,
-          group_id: groupId,
-          personal_goal_id: goalId,
-          amount: tx.amount / 100,
-          currency: tx.currency,
-          status: "paid",
-          paystack_reference: tx.reference,
+      if (userId && purpose === "personal_savings" && goalId) {
+        const amount = tx.amount / 100;
+        const rpc = await admin.rpc("apply_personal_savings_payment", {
+          p_user_id: userId,
+          p_goal_id: goalId,
+          p_amount: amount,
+          p_currency: tx.currency,
+          p_reference: tx.reference,
         });
+
+        if (rpc.error) {
+          const existing = await admin
+            .from("contributions")
+            .select("id")
+            .eq("paystack_reference", tx.reference)
+            .limit(1)
+            .maybeSingle<{ id: string }>();
+
+          if (!existing.data) {
+            const goal = await admin
+              .from("personal_goals")
+              .select("id,user_id,saved_amount,target_amount,status,currency")
+              .eq("id", goalId)
+              .eq("user_id", userId)
+              .maybeSingle<{
+                id: string;
+                user_id: string;
+                saved_amount: number;
+                target_amount: number;
+                status: string;
+                currency: string;
+              }>();
+
+            if (goal.data) {
+              await admin.from("contributions").insert({
+                user_id: userId,
+                personal_goal_id: goalId,
+                amount,
+                currency: tx.currency ?? goal.data.currency ?? "NGN",
+                status: "paid",
+                paystack_reference: tx.reference,
+              });
+
+              const saved = Number(goal.data.saved_amount ?? 0) + amount;
+              const target = Number(goal.data.target_amount ?? 0);
+              await admin
+                .from("personal_goals")
+                .update({
+                  saved_amount: saved,
+                  status: target > 0 && saved >= target ? "completed" : goal.data.status ?? "active",
+                })
+                .eq("id", goalId)
+                .eq("user_id", userId);
+            }
+          }
+        }
+      } else if (userId && purpose === "group_contribution") {
+        const existing = await admin
+          .from("contributions")
+          .select("id")
+          .eq("paystack_reference", tx.reference)
+          .limit(1)
+          .maybeSingle<{ id: string }>();
+
+        if (!existing.data) {
+          await admin.from("contributions").insert({
+            user_id: userId,
+            group_id: groupId,
+            amount: tx.amount / 100,
+            currency: tx.currency,
+            status: "paid",
+            paystack_reference: tx.reference,
+          });
+        }
       }
     }
   } catch {}
@@ -114,4 +178,3 @@ export async function GET(request: Request) {
     metadata: tx.metadata ?? null,
   });
 }
-

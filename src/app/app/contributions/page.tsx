@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Users } from "lucide-react";
 import { Button, Card, Chip, Input } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -79,13 +79,22 @@ export default async function ContributionsPage() {
     <div className="px-5 pt-[calc(18px+env(safe-area-inset-top))]">
       <div className="flex items-center justify-between">
         <div className="text-[16px] font-semibold text-app-fg">Contributions</div>
-        <Link
-          href="/app/groups"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]"
-          aria-label="Groups"
-        >
-          <Plus className="h-5 w-5 text-app-fg" />
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/app/groups"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]"
+            aria-label="Groups"
+          >
+            <Users className="h-5 w-5 text-app-fg" />
+          </Link>
+          <Link
+            href="/app/goals/create"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]"
+            aria-label="Create goal"
+          >
+            <Plus className="h-5 w-5 text-app-fg" />
+          </Link>
+        </div>
       </div>
 
       <div className="mt-4 flex items-center gap-3">
@@ -146,6 +155,7 @@ export default async function ContributionsPage() {
           const saved = Number(goal.saved_amount ?? 0);
           const target = Number(goal.target_amount ?? 0);
           const progress = target > 0 ? Math.round((Math.min(saved, target) / target) * 100) : 0;
+          const remaining = Math.max(target - saved, 0);
           return (
             <Card key={goal.id} className="px-4 py-4">
               <div className="flex items-center justify-between">
@@ -165,15 +175,18 @@ export default async function ContributionsPage() {
               </div>
               <div className="mt-3 flex items-center justify-between">
                 <div className="text-[12px] text-app-muted">
-                  Target {formatMoney(target, goal.currency ?? "NGN")}
+                  {progress}% · Remaining {formatMoney(remaining, goal.currency ?? "NGN")}
                 </div>
-                <Link
-                  href={`/app/contribute?purpose=personal_savings&goal_id=${encodeURIComponent(goal.id)}`}
-                >
-                  <Button variant="outline" className="h-9 px-4 text-[13px]">
-                    Add money
-                  </Button>
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link href={`/app/goals/${encodeURIComponent(goal.id)}`}>
+                    <Button variant="outline" className="h-9 px-4 text-[13px]">
+                      View
+                    </Button>
+                  </Link>
+                  <Link href={`/app/contribute?purpose=personal_savings&goal_id=${encodeURIComponent(goal.id)}`}>
+                    <Button className="h-9 px-4 text-[13px]">Add money</Button>
+                  </Link>
+                </div>
               </div>
             </Card>
           );
