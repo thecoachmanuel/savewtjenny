@@ -1,8 +1,5 @@
-import Link from "next/link";
-import { Plus, Search, Users } from "lucide-react";
-import { Button, Card, Chip, Input } from "@/components/ui";
-import { formatMoney } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ContributionsClient } from "@/app/app/contributions/contributions-client";
 
 export default async function ContributionsPage() {
   const supabase = await createSupabaseServerClient();
@@ -75,129 +72,23 @@ export default async function ContributionsPage() {
 
   const goals = goalsResult.data ?? [];
 
-  return (
-    <div className="px-5 pt-[calc(18px+env(safe-area-inset-top))]">
-      <div className="flex items-center justify-between">
-        <div className="text-[16px] font-semibold text-app-fg">Contributions</div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/app/groups"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]"
-            aria-label="Groups"
-          >
-            <Users className="h-5 w-5 text-app-fg" />
-          </Link>
-          <Link
-            href="/app/goals/create"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]"
-            aria-label="Create goal"
-          >
-            <Plus className="h-5 w-5 text-app-fg" />
-          </Link>
-        </div>
-      </div>
+  const mappedGroups = groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    currency: g.currency ?? "NGN",
+    contribution_amount: Number(g.contribution_amount ?? 0),
+    total_cycles: Number(g.total_cycles ?? 0),
+    members: memberCounts.get(g.id) ?? 0,
+    paid_cycles: Math.min(paidCounts.get(g.id) ?? 0, Number(g.total_cycles ?? 0)),
+  }));
 
-      <div className="mt-4 flex items-center gap-3">
-        <div className="relative flex-1">
-          <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center">
-            <Search className="h-4 w-4 text-app-muted" />
-          </div>
-          <Input className="pl-11" placeholder="Search groups or goals" />
-        </div>
-      </div>
+  const mappedGoals = goals.map((g) => ({
+    id: g.id,
+    title: g.title,
+    currency: g.currency ?? "NGN",
+    target_amount: Number(g.target_amount ?? 0),
+    saved_amount: Number(g.saved_amount ?? 0),
+  }));
 
-      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-        <Chip active>All</Chip>
-        <Chip>Groups</Chip>
-        <Chip>Personal goals</Chip>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        {groups.map((g) => {
-          const members = memberCounts.get(g.id) ?? 0;
-          const paid = Math.min(paidCounts.get(g.id) ?? 0, Number(g.total_cycles ?? 0));
-          const totalCycles = Number(g.total_cycles ?? 0);
-          const progress = totalCycles > 0 ? Math.round((paid / totalCycles) * 100) : 0;
-          const nextAmount = formatMoney(Number(g.contribution_amount ?? 0), g.currency ?? "NGN");
-
-          return (
-            <Card key={g.id} className="px-4 py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-[13px] font-semibold text-app-fg">{g.name}</div>
-                  <div className="mt-1 text-[12px] text-app-muted">
-                    {members ? `${members} members` : "New group"}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[12px] text-app-muted">Next</div>
-                  <div className="text-[13px] font-semibold text-app-fg">{nextAmount}</div>
-                </div>
-              </div>
-              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-app-bg">
-                <div className="h-full rounded-full bg-app-primary" style={{ width: `${progress}%` }} />
-              </div>
-              <div className="mt-3 flex items-center justify-between">
-                <div className="text-[12px] text-app-muted">
-                  {paid} of {totalCycles} cycles completed
-                </div>
-                <Link
-                  href={`/app/contribute?purpose=group_contribution&group_id=${encodeURIComponent(g.id)}`}
-                >
-                  <Button className="h-9 px-4 text-[13px]">Contribute</Button>
-                </Link>
-              </div>
-            </Card>
-          );
-        })}
-
-        {goals.map((goal) => {
-          const saved = Number(goal.saved_amount ?? 0);
-          const target = Number(goal.target_amount ?? 0);
-          const progress = target > 0 ? Math.round((Math.min(saved, target) / target) * 100) : 0;
-          const remaining = Math.max(target - saved, 0);
-          return (
-            <Card key={goal.id} className="px-4 py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-[13px] font-semibold text-app-fg">{goal.title}</div>
-                  <div className="mt-1 text-[12px] text-app-muted">Personal goal</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[12px] text-app-muted">Saved</div>
-                  <div className="text-[13px] font-semibold text-app-fg">
-                    {formatMoney(saved, goal.currency ?? "NGN")}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-app-bg">
-                <div className="h-full rounded-full bg-app-primary" style={{ width: `${progress}%` }} />
-              </div>
-              <div className="mt-3 flex items-center justify-between">
-                <div className="text-[12px] text-app-muted">
-                  {progress}% · Remaining {formatMoney(remaining, goal.currency ?? "NGN")}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Link href={`/app/goals/${encodeURIComponent(goal.id)}`}>
-                    <Button variant="outline" className="h-9 px-4 text-[13px]">
-                      View
-                    </Button>
-                  </Link>
-                  <Link href={`/app/contribute?purpose=personal_savings&goal_id=${encodeURIComponent(goal.id)}`}>
-                    <Button className="h-9 px-4 text-[13px]">Add money</Button>
-                  </Link>
-                </div>
-              </div>
-            </Card>
-          );
-        })}
-
-        {groups.length === 0 && goals.length === 0 ? (
-          <div className="rounded-3xl border border-app-border bg-white px-5 py-6 text-center text-[13px] text-app-muted">
-            No contributions yet. Join a group or create a personal goal to start saving.
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
+  return <ContributionsClient groups={mappedGroups} goals={mappedGoals} />;
 }
