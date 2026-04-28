@@ -18,15 +18,19 @@ type GroupOption = {
   currency: string;
   contribution_amount: number;
   member_count: number;
+  cycle_frequency: string;
+  joined_at: string;
 };
 
 type GroupMemberWithGroup = {
   group_id: string;
+  joined_at: string;
   groups: {
     id: string;
     name: string;
     currency: string | null;
     contribution_amount: number | null;
+    cycle_frequency: string | null;
   } | null;
 };
 
@@ -49,9 +53,44 @@ export default function ContributePage() {
   const [selectedId, setSelectedId] = useState<string>("");
   const [recipient, setRecipient] = useState<{ name: string; label: string } | null>(null);
   const [amount, setAmount] = useState("");
+  const [due, setDue] = useState<{ label: string; message: string } | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const selectedCurrency =
+    purpose === "personal_savings"
+      ? goals.find((g) => g.id === selectedId)?.currency ?? "NGN"
+      : groups.find((g) => g.id === selectedId)?.currency ?? "NGN";
+
+  const currencySymbol = selectedCurrency === "NGN" ? "₦" : selectedCurrency;
+
+  function addFrequency(base: Date, frequency: string, count: number) {
+    const d = new Date(base);
+    if (count <= 0) return d;
+    const f = (frequency ?? "").toLowerCase();
+    if (f === "weekly") {
+      d.setDate(d.getDate() + 7 * count);
+      return d;
+    }
+    if (f === "daily") {
+      d.setDate(d.getDate() + count);
+      return d;
+    }
+    d.setMonth(d.getMonth() + count);
+    return d;
+  }
+
+  function dueLabel(dueAt: Date) {
+    const now = new Date();
+    const startA = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startB = new Date(dueAt.getFullYear(), dueAt.getMonth(), dueAt.getDate());
+    const diffDays = Math.round((startB.getTime() - startA.getTime()) / (24 * 60 * 60 * 1000));
+    if (diffDays === 0) return "Due today";
+    if (diffDays === 1) return "Due tomorrow";
+    if (diffDays < 0) return `${Math.abs(diffDays)} days overdue`;
+    return `Due in ${diffDays} days`;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -74,7 +113,7 @@ export default function ContributePage() {
 
       const groupRows = await supabase
         .from("group_members")
-        .select("group_id, groups:groups(id,name,currency,contribution_amount)")
+        .select("group_id, joined_at, groups:groups(id,name,currency,contribution_amount,cycle_frequency)")
         .eq("user_id", authData.user.id)
         .order("joined_at", { ascending: true })
         .returns<GroupMemberWithGroup[]>();
@@ -93,12 +132,19 @@ export default function ContributePage() {
         counts.set(row.group_id, (counts.get(row.group_id) ?? 0) + 1);
       }
 
+      const membershipJoinedAt = new Map<string, string>();
+      for (const row of groupRows.data ?? []) {
+        if (row.groups?.id && row.joined_at) membershipJoinedAt.set(row.groups.id, row.joined_at);
+      }
+
       const mappedGroups: GroupOption[] = rawGroups.map((g) => ({
         id: g.id,
         name: g.name,
         currency: g.currency ?? "NGN",
         contribution_amount: Number(g.contribution_amount ?? 0),
         member_count: counts.get(g.id) ?? 0,
+        cycle_frequency: g.cycle_frequency ?? "monthly",
+        joined_at: membershipJoinedAt.get(g.id) ?? new Date().toISOString(),
       }));
 
       const goalsResult = await supabase
@@ -129,6 +175,7 @@ export default function ContributePage() {
         setSelectedId(initialId);
         setAmount("");
         setRecipient(null);
+        setDue(null);
       } else {
         const initialId = urlGroupId && mappedGroups.some((g) => g.id === urlGroupId) ? urlGroupId : mappedGroups[0]?.id ?? "";
         setSelectedId(initialId);
@@ -149,6 +196,7 @@ export default function ContributePage() {
     async function loadRecipient() {
       if (purpose !== "group_contribution" || !selectedId) {
         setRecipient(null);
+        setDue(null);
         return;
       }
 
@@ -175,6 +223,49 @@ export default function ContributePage() {
       cancelled = true;
     };
   }, [purpose, selectedId, supabase]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function computeDue() {
+      if (purpose !== "group_contribution" || !selectedId) {
+        setDue(null);
+        return;
+      }
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) {
+        setDue(null);
+        return;
+      }
+
+      const picked = groups.find((g) => g.id === selectedId) ?? null;
+      if (!picked) {
+        setDue(null);
+        return;
+      }
+
+      const paid = await supabase
+        .from("contributions")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", authData.user.id)
+        .eq("group_id", selectedId)
+        .eq("status", "paid");
+
+      if (cancelled) return;
+
+      const paidCycles = paid.count ?? 0;
+      const dueAt = addFrequency(new Date(picked.joined_at), picked.cycle_frequency, paidCycles);
+      const label = dueLabel(dueAt);
+      const msg =
+        label.includes("overdue") || label === "Due today"
+          ? "Pay now to stay on track."
+          : "You can pay early or wait until it's due.";
+      setDue({ label, message: msg });
+    }
+    void computeDue();
+    return () => {
+      cancelled = true;
+    };
+  }, [purpose, selectedId, groups, supabase]);
 
   async function onContinue() {
     setError(null);
@@ -289,7 +380,7 @@ export default function ContributePage() {
                 </div>
               </div>
               <div className="rounded-full bg-app-bg px-2 py-0.5 text-[10px] font-semibold text-app-primary">
-                NGN
+                {selectedCurrency}
               </div>
             </div>
           </>
@@ -299,7 +390,7 @@ export default function ContributePage() {
           Contribution
         </div>
         <div className="mt-2 flex items-center gap-3 rounded-2xl border border-app-border bg-white px-4 py-3">
-          <div className="text-[14px] font-semibold text-app-fg">₦</div>
+          <div className="text-[14px] font-semibold text-app-fg">{currencySymbol}</div>
           <Input
             value={amount}
             onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))}
@@ -309,17 +400,17 @@ export default function ContributePage() {
           />
         </div>
 
-        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4" />
-            <div>
-              <div className="font-semibold">Due today</div>
-              <div className="mt-0.5 text-amber-800">
-                Your contribution is due today. Pay now to stay on track.
+        {purpose === "group_contribution" && due ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4" />
+              <div>
+                <div className="font-semibold">{due.label}</div>
+                <div className="mt-0.5 text-amber-800">{due.message}</div>
               </div>
             </div>
           </div>
-        </div>
+        ) : null}
       </Card>
 
       {error ? (

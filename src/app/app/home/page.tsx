@@ -1,7 +1,5 @@
-import Link from "next/link";
-import { Bell, ChevronDown, Eye, Plus } from "lucide-react";
-import { Button, Card } from "@/components/ui";
-import { formatMoney } from "@/lib/money";
+import { HomeTabs } from "@/app/app/home/home-tabs";
+import { formatKobo, formatMoney } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type Group = {
@@ -19,6 +17,15 @@ type MessageRow = {
   profiles: { first_name: string | null; last_name: string | null } | null;
 };
 
+type ActivityItem = {
+  id: string;
+  ts: string;
+  title: string;
+  subtitle: string;
+  amount: string | null;
+  status: string | null;
+};
+
 export default async function HomePage() {
   const supabase = await createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
@@ -28,6 +35,7 @@ export default async function HomePage() {
   let activeGroup: Group | null = null;
   let paidCycles = 0;
   let recentMessages: MessageRow[] = [];
+  let activity: ActivityItem[] = [];
 
   const profileResult = await supabase
     .from("profiles")
@@ -75,154 +83,102 @@ export default async function HomePage() {
   const contributionCurrency = activeGroup?.currency ?? "NGN";
   const formattedContribution = formatMoney(contributionAmount, contributionCurrency);
 
+  const userContribs = await supabase
+    .from("contributions")
+    .select(
+      "id,amount,currency,status,created_at,group_id,personal_goal_id,groups:groups(name),personal_goals:personal_goals(title)",
+    )
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(10)
+    .returns<
+      Array<{
+        id: string;
+        amount: number;
+        currency: string;
+        status: string;
+        created_at: string;
+        group_id: string | null;
+        personal_goal_id: string | null;
+        groups: { name: string } | null;
+        personal_goals: { title: string } | null;
+      }>
+    >();
+
+  const userTx = await supabase
+    .from("paystack_transactions")
+    .select("reference,amount_kobo,currency,status,paid_at,created_at")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(10)
+    .returns<
+      Array<{
+        reference: string;
+        amount_kobo: number | null;
+        currency: string | null;
+        status: string | null;
+        paid_at: string | null;
+        created_at: string;
+      }>
+    >();
+
+  const items: ActivityItem[] = [];
+
+  for (const c of userContribs.data ?? []) {
+    const title = c.group_id
+      ? `Contribution · ${c.groups?.name ?? "Group"}`
+      : c.personal_goal_id
+        ? `Personal savings · ${c.personal_goals?.title ?? "Goal"}`
+        : "Contribution";
+    items.push({
+      id: `contribution:${c.id}`,
+      ts: c.created_at,
+      title,
+      subtitle: c.status,
+      amount: formatMoney(Number(c.amount ?? 0), c.currency ?? "NGN"),
+      status: c.status,
+    });
+  }
+
+  for (const t of userTx.data ?? []) {
+    items.push({
+      id: `paystack:${t.reference}`,
+      ts: t.paid_at ?? t.created_at,
+      title: "Payment · Paystack",
+      subtitle: t.reference,
+      amount: formatKobo(t.amount_kobo, t.currency ?? "NGN"),
+      status: t.status ?? "pending",
+    });
+  }
+
+  if (activeGroup) {
+    for (const m of recentMessages) {
+      const name =
+        (m.profiles?.first_name ?? "Member") +
+        (m.profiles?.last_name ? ` ${m.profiles.last_name}` : "");
+      items.push({
+        id: `message:${m.id}`,
+        ts: m.created_at,
+        title: `Message · ${activeGroup.name}`,
+        subtitle: `${name}: ${m.message}`,
+        amount: null,
+        status: null,
+      });
+    }
+  }
+
+  activity = items
+    .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+    .slice(0, 12);
+
   return (
-    <div className="px-5 pt-[calc(18px+env(safe-area-inset-top))]">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-full bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]" />
-          <div className="min-w-0">
-            <div className="text-[12px] text-app-muted">Hello, {firstName} 👋</div>
-            <div className="mt-0.5 text-[14px] font-semibold text-app-fg">
-              {activeGroup?.name ?? "Choose a group"}
-            </div>
-          </div>
-          <ChevronDown className="h-4 w-4 text-app-muted" />
-        </div>
-
-        <Link
-          href="/app/notifications"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]"
-          aria-label="Notifications"
-        >
-          <Bell className="h-5 w-5 text-app-fg" />
-        </Link>
-      </div>
-
-      <Card className="mt-5 px-5 py-4">
-        <div className="text-center text-[11px] font-semibold uppercase tracking-wide text-app-muted">
-          Your contribution
-        </div>
-        <div className="mt-2 flex items-center justify-center gap-2">
-          <div className="text-[36px] font-semibold tracking-tight text-app-fg">
-            {formattedContribution}
-          </div>
-          <button
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-app-bg"
-            aria-label="Toggle visibility"
-          >
-            <Eye className="h-4 w-4 text-app-muted" />
-          </button>
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-app-border bg-app-bg px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full border border-app-border bg-white text-[12px] font-semibold text-app-fg">
-                {Math.min(paidCycles + 1, activeGroup?.total_cycles ?? 1)}x
-              </div>
-              <div>
-                <div className="text-[13px] font-semibold text-app-fg">
-                  Next contribution
-                </div>
-                <div className="mt-0.5 text-[12px] text-app-muted">
-                  {Math.min(paidCycles, activeGroup?.total_cycles ?? 0)} of {activeGroup?.total_cycles ?? 0} cycles completed.
-                </div>
-              </div>
-            </div>
-            <ChevronDown className="h-4 w-4 rotate-[-90deg] text-app-muted" />
-          </div>
-        </div>
-
-        {activeGroup ? (
-          <Link
-            href={`/app/contribute?purpose=group_contribution&group_id=${encodeURIComponent(activeGroup.id)}`}
-            className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-xl border border-app-border bg-white px-4 text-[14px] font-medium text-app-fg transition-colors hover:bg-app-bg active:bg-app-bg"
-          >
-            Send contribution
-          </Link>
-        ) : (
-          <Button className="mt-4 w-full" variant="outline" disabled>
-            Send contribution
-          </Button>
-        )}
-      </Card>
-
-      <div className="mt-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <div className="border-b-2 border-app-primary pb-2 text-[13px] font-semibold text-app-fg">
-              Chat
-            </div>
-            <div className="pb-2 text-[13px] font-semibold text-app-muted">
-              Activity
-            </div>
-          </div>
-          <Link
-            href="/app/groups"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]"
-            aria-label="New group"
-          >
-            <Plus className="h-4 w-4 text-app-fg" />
-          </Link>
-        </div>
-
-        <div className="mt-3 space-y-3">
-          <Card className="px-4 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-app-bg" />
-                <div>
-                  <div className="text-[13px] font-semibold text-app-fg">
-                    {activeGroup?.name ?? "No group yet"}
-                  </div>
-                  <div className="mt-0.5 text-[12px] text-app-muted">
-                    {recentMessages[0]?.message
-                      ? recentMessages[0].message
-                      : activeGroup
-                        ? "No messages yet."
-                        : "Join a group to start chatting."}
-                  </div>
-                </div>
-              </div>
-              <div className="text-[11px] text-app-muted">
-                {recentMessages[0]?.created_at
-                  ? new Date(recentMessages[0].created_at).toLocaleTimeString("en-NG", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : "-"}
-              </div>
-            </div>
-          </Card>
-
-          {recentMessages[1] ? (
-            <Card className="px-4 py-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-app-bg" />
-                  <div>
-                    <div className="text-[13px] font-semibold text-app-fg">
-                      {(recentMessages[1].profiles?.first_name ?? "Member") +
-                        (recentMessages[1].profiles?.last_name
-                          ? ` ${recentMessages[1].profiles.last_name}`
-                          : "")}
-                    </div>
-                    <div className="mt-0.5 text-[12px] text-app-muted">
-                      {recentMessages[1].message}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-[11px] text-app-muted">
-                  {new Date(recentMessages[1].created_at).toLocaleTimeString("en-NG", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </div>
-              </div>
-            </Card>
-          ) : null}
-        </div>
-      </div>
-    </div>
+    <HomeTabs
+      firstName={firstName}
+      activeGroup={activeGroup}
+      formattedContribution={formattedContribution}
+      paidCycles={paidCycles}
+      recentMessages={recentMessages}
+      activity={activity}
+    />
   );
 }

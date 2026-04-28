@@ -28,6 +28,8 @@ export default function ReceiptPage() {
     data: VerifyResponse | null;
   }>({ loading: true, data: null });
 
+  const [busy, setBusy] = useState(false);
+
   const formattedAmount = useMemo(() => {
     if (!state.data || state.data.ok !== true) return "";
     return formatMoney(Number(state.data.amount), state.data.currency ?? "NGN");
@@ -65,35 +67,190 @@ export default function ReceiptPage() {
     return "Contribution";
   }, [state.data]);
 
-  function onDownload() {
-    if (!state.data || state.data.ok !== true) return;
-    const lines = [
-      "Save with Jenny Receipt",
-      `Status: ${state.data.status}`,
-      `Amount: ${formattedAmount}`,
-      `Reference: ${state.data.reference}`,
-      `Paid at: ${state.data.paid_at ?? "-"}`,
-      `Email: ${state.data.email ?? "-"}`,
+  async function makeReceiptJpegBlob() {
+    if (!state.data || state.data.ok !== true) return null;
+
+    const payload = {
+      appName: "Save with Jenny",
+      status: state.data.status,
+      amountText: formattedAmount,
+      reference: state.data.reference,
+      paidAtText: state.data.paid_at
+        ? new Date(state.data.paid_at).toLocaleString("en-NG", {
+            weekday: "short",
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "-",
+      email: state.data.email ?? "-",
+      note: referenceNote,
+    };
+
+    const width = 1080;
+    const height = 1350;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    ctx.fillStyle = "#F8FAFC";
+    ctx.fillRect(0, 0, width, height);
+
+    const cardX = 80;
+    const cardY = 120;
+    const cardW = width - cardX * 2;
+    const cardH = height - cardY * 2;
+    const r = 48;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cardX + r, cardY);
+    ctx.lineTo(cardX + cardW - r, cardY);
+    ctx.quadraticCurveTo(cardX + cardW, cardY, cardX + cardW, cardY + r);
+    ctx.lineTo(cardX + cardW, cardY + cardH - r);
+    ctx.quadraticCurveTo(cardX + cardW, cardY + cardH, cardX + cardW - r, cardY + cardH);
+    ctx.lineTo(cardX + r, cardY + cardH);
+    ctx.quadraticCurveTo(cardX, cardY + cardH, cardX, cardY + cardH - r);
+    ctx.lineTo(cardX, cardY + r);
+    ctx.quadraticCurveTo(cardX, cardY, cardX + r, cardY);
+    ctx.closePath();
+    ctx.fillStyle = "#FFFFFF";
+    ctx.shadowColor = "rgba(15, 23, 42, 0.14)";
+    ctx.shadowBlur = 40;
+    ctx.shadowOffsetY = 18;
+    ctx.fill();
+    ctx.restore();
+
+    const cx = width / 2;
+    const iconY = cardY + 140;
+    ctx.fillStyle = payload.status === "success" ? "#DCFCE7" : "#FEF3C7";
+    ctx.beginPath();
+    ctx.arc(cx, iconY, 64, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = payload.status === "success" ? "#16A34A" : "#D97706";
+    ctx.lineWidth = 10;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(cx - 26, iconY + 4);
+    ctx.lineTo(cx - 6, iconY + 26);
+    ctx.lineTo(cx + 34, iconY - 18);
+    ctx.stroke();
+
+    ctx.fillStyle = "#0F172A";
+    ctx.textAlign = "center";
+    ctx.font = "600 44px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+    ctx.fillText(payload.status === "success" ? "Successful" : "Pending", cx, iconY + 122);
+
+    ctx.font = "700 92px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+    ctx.fillText(payload.status === "success" ? payload.amountText : "—", cx, iconY + 238);
+
+    ctx.fillStyle = "#475569";
+    ctx.font = "500 30px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+    ctx.fillText(payload.appName, cx, iconY - 90);
+
+    const left = cardX + 70;
+    const top = iconY + 300;
+    const rowGap = 76;
+    const labelColor = "#64748B";
+    const valueColor = "#0F172A";
+    const dividerColor = "#E2E8F0";
+
+    const rows: Array<{ label: string; value: string }> = [
+      { label: "Reference", value: payload.reference },
+      { label: "Status", value: payload.status },
+      { label: "Payment method", value: "Paystack" },
+      { label: "Reference note", value: payload.note },
+      { label: "Paid at", value: payload.paidAtText },
+      { label: "Email", value: payload.email },
     ];
-    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `receipt-${state.data.reference}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+
+    ctx.textAlign = "left";
+    for (let i = 0; i < rows.length; i++) {
+      const y = top + i * rowGap;
+      ctx.fillStyle = labelColor;
+      ctx.font = "600 28px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+      ctx.fillText(rows[i].label, left, y);
+
+      ctx.fillStyle = valueColor;
+      ctx.textAlign = "right";
+      ctx.font = "600 28px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+      ctx.fillText(rows[i].value, cardX + cardW - 70, y);
+      ctx.textAlign = "left";
+
+      if (i !== rows.length - 1) {
+        ctx.strokeStyle = dividerColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(left, y + 32);
+        ctx.lineTo(cardX + cardW - 70, y + 32);
+        ctx.stroke();
+      }
+    }
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.92),
+    );
+    return blob;
   }
 
-  async function onShare() {
-    if (!state.data || state.data.ok !== true) return;
-    const text = `Save with Jenny receipt\nAmount: ${formattedAmount}\nReference: ${state.data.reference}\nStatus: ${state.data.status}`;
-    if (navigator.share) {
-      await navigator.share({ text });
-      return;
+  async function onDownloadJpg() {
+    if (!ok || busy) return;
+    setBusy(true);
+    try {
+      const blob = await makeReceiptJpegBlob();
+      if (!blob || !state.data || state.data.ok !== true) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `receipt-${state.data.reference}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setBusy(false);
     }
-    await navigator.clipboard.writeText(text);
+  }
+
+  async function onShareJpg() {
+    if (!ok || busy) return;
+    setBusy(true);
+    try {
+      const blob = await makeReceiptJpegBlob();
+      if (!blob || !state.data || state.data.ok !== true) return;
+      const file = new File([blob], `receipt-${state.data.reference}.jpg`, {
+        type: "image/jpeg",
+      });
+
+      const canShareFiles =
+        typeof navigator !== "undefined" &&
+        Boolean(navigator.share) &&
+        Boolean((navigator as unknown as { canShare?: (d: unknown) => boolean }).canShare?.({ files: [file] }));
+
+      if (canShareFiles) {
+        await navigator.share({
+          files: [file],
+          title: "Save with Jenny Receipt",
+        });
+        return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `receipt-${state.data.reference}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -147,11 +304,16 @@ export default function ReceiptPage() {
           ) : null}
 
           <div className="mt-6 space-y-3">
-            <Button className="w-full" onClick={onDownload} disabled={!ok}>
-              Download
+            <Button className="w-full" onClick={() => void onDownloadJpg()} disabled={!ok || busy}>
+              {busy ? "Preparing..." : "Download JPG"}
             </Button>
-            <Button className="w-full" variant="outline" onClick={() => void onShare()} disabled={!ok}>
-              Share
+            <Button
+              className="w-full"
+              variant="outline"
+              onClick={() => void onShareJpg()}
+              disabled={!ok || busy}
+            >
+              {busy ? "Preparing..." : "Share JPG"}
             </Button>
           </div>
         </Card>

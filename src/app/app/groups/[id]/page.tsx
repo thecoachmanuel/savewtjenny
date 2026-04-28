@@ -16,6 +16,7 @@ type GroupRow = {
   cover_bucket: string | null;
   cover_path: string | null;
   invite_code: string;
+  created_at: string;
 };
 
 type MemberRow = {
@@ -38,10 +39,39 @@ export default async function GroupDetailPage({
   const { id } = params;
   const supabase = await createSupabaseServerClient();
 
+  function addFrequency(base: Date, frequency: string, count: number) {
+    const d = new Date(base);
+    if (count <= 0) return d;
+    const f = (frequency ?? "").toLowerCase();
+    if (f === "weekly") {
+      d.setDate(d.getDate() + 7 * count);
+      return d;
+    }
+    if (f === "daily") {
+      d.setDate(d.getDate() + count);
+      return d;
+    }
+    d.setMonth(d.getMonth() + count);
+    return d;
+  }
+
+  function getCycleWindow(startAt: Date, frequency: string) {
+    const now = new Date();
+    let start = new Date(startAt);
+    let end = addFrequency(start, frequency, 1);
+    let idx = 0;
+    while (now.getTime() >= end.getTime() && idx < 10_000) {
+      start = end;
+      end = addFrequency(start, frequency, 1);
+      idx++;
+    }
+    return { idx, start, end };
+  }
+
   const groupResult = await supabase
     .from("groups")
     .select(
-      "id,name,description,currency,contribution_amount,cycle_frequency,total_cycles,cover_bucket,cover_path,invite_code",
+      "id,name,description,currency,contribution_amount,cycle_frequency,total_cycles,cover_bucket,cover_path,invite_code,created_at",
     )
     .eq("id", id)
     .maybeSingle<GroupRow>();
@@ -101,6 +131,50 @@ export default async function GroupDetailPage({
     Number(group.contribution_amount) * Math.max(members.length, 1),
     group.currency ?? "NGN",
   );
+
+  const groupContributions = await supabase
+    .from("contributions")
+    .select("id,user_id,amount,currency,status,created_at,profiles:profiles(first_name,last_name)")
+    .eq("group_id", group.id)
+    .order("created_at", { ascending: false })
+    .limit(25)
+    .returns<
+      Array<{
+        id: string;
+        user_id: string;
+        amount: number;
+        currency: string;
+        status: string;
+        created_at: string;
+        profiles: { first_name: string | null; last_name: string | null } | null;
+      }>
+    >();
+
+  const orderedMembers = [...members].sort((a, b) => a.position - b.position);
+  const cycleWindow = getCycleWindow(new Date(group.created_at), group.cycle_frequency);
+  const currentCycleNumber = Math.min(cycleWindow.idx + 1, group.total_cycles);
+  const currentRecipient =
+    orderedMembers.length > 0 ? orderedMembers[(currentCycleNumber - 1) % orderedMembers.length] : null;
+
+  const nextRecipientName =
+    currentRecipient?.profile
+      ? (currentRecipient.profile.first_name ?? "Member") +
+        (currentRecipient.profile.last_name ? ` ${currentRecipient.profile.last_name}` : "")
+      : "-";
+
+  const cyclePaid = await supabase
+    .from("contributions")
+    .select("user_id")
+    .eq("group_id", group.id)
+    .eq("status", "paid")
+    .gte("created_at", cycleWindow.start.toISOString())
+    .lt("created_at", cycleWindow.end.toISOString())
+    .returns<Array<{ user_id: string }>>();
+
+  const paidUserIds = new Set((cyclePaid.data ?? []).map((r) => r.user_id));
+  const paidThisCycle = paidUserIds.size;
+  const memberCount = orderedMembers.length;
+  const unpaidMembers = orderedMembers.filter((m) => !paidUserIds.has(m.user_id));
 
   const hasCover = Boolean(group.cover_bucket && group.cover_path);
 
@@ -219,18 +293,118 @@ export default async function GroupDetailPage({
                 <div className="mt-1 font-semibold text-app-fg">{payoutEstimate}</div>
               </div>
               <div className="rounded-2xl border border-app-border bg-white px-3 py-3">
-                <div className="text-app-muted">Deadline Date</div>
-                <div className="mt-1 font-semibold text-app-fg">Every {group.cycle_frequency}</div>
+                <div className="text-app-muted">Next Payout To</div>
+                <div className="mt-1 font-semibold text-app-fg">{nextRecipientName}</div>
               </div>
               <div className="rounded-2xl border border-app-border bg-white px-3 py-3">
                 <div className="text-app-muted">Next Contribution</div>
                 <div className="mt-1 font-semibold text-app-fg">{contributionDisplay}</div>
+              </div>
+              <div className="rounded-2xl border border-app-border bg-white px-3 py-3">
+                <div className="text-app-muted">This Cycle</div>
+                <div className="mt-1 font-semibold text-app-fg">
+                  #{currentCycleNumber} · {paidThisCycle}/{Math.max(memberCount, 0)} paid
+                </div>
+              </div>
+              <div className="rounded-2xl border border-app-border bg-white px-3 py-3">
+                <div className="text-app-muted">Cycle Window</div>
+                <div className="mt-1 font-semibold text-app-fg">
+                  {cycleWindow.start.toLocaleDateString("en-NG", { month: "short", day: "numeric" })} –{" "}
+                  {cycleWindow.end.toLocaleDateString("en-NG", { month: "short", day: "numeric" })}
+                </div>
               </div>
             </div>
 
             <div className="mt-4 text-[12px] text-app-muted">
               Invite code: <span className="font-semibold text-app-fg">{group.invite_code}</span>
             </div>
+
+            {unpaidMembers.length > 0 ? (
+              <div className="mt-4 rounded-2xl border border-app-border bg-white px-4 py-4">
+                <div className="text-[12px] font-semibold uppercase tracking-wide text-app-muted">
+                  Unpaid This Cycle
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {unpaidMembers.slice(0, 10).map((m) => {
+                    const name =
+                      (m.profile?.first_name ?? "Member") +
+                      (m.profile?.last_name ? ` ${m.profile.last_name}` : "");
+                    return (
+                      <div
+                        key={m.user_id}
+                        className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[12px] font-semibold text-app-fg"
+                      >
+                        {name}
+                      </div>
+                    );
+                  })}
+                  {unpaidMembers.length > 10 ? (
+                    <div className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[12px] font-semibold text-app-muted">
+                      +{unpaidMembers.length - 10} more
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-[13px] font-semibold text-emerald-700">
+                Everyone has paid for this cycle.
+              </div>
+            )}
+          </div>
+        </Card>
+
+        <Card className="mt-4 px-5 py-4">
+          <div className="flex items-center justify-between">
+            <div className="text-[13px] font-semibold text-app-fg">Payments</div>
+            <div className="text-[12px] text-app-muted">Latest</div>
+          </div>
+
+          <div className="mt-3 space-y-3">
+            {(groupContributions.data ?? []).map((c) => {
+              const name =
+                (c.profiles?.first_name ?? "Member") +
+                (c.profiles?.last_name ? ` ${c.profiles.last_name}` : "");
+              const dt = new Date(c.created_at);
+              const time = dt.toLocaleString("en-NG", {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              const status =
+                c.status === "paid"
+                  ? "Paid"
+                  : c.status === "pending"
+                    ? "Pending"
+                    : c.status === "failed"
+                      ? "Failed"
+                      : c.status;
+              const tone =
+                status === "Paid"
+                  ? "text-emerald-600"
+                  : status === "Failed"
+                    ? "text-app-danger"
+                    : "text-amber-600";
+              return (
+                <div key={c.id} className="flex items-center justify-between rounded-2xl bg-app-bg px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-[13px] font-semibold text-app-fg">{name}</div>
+                    <div className="mt-0.5 text-[12px] text-app-muted">{time}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[13px] font-semibold text-app-fg">
+                      {formatMoney(Number(c.amount ?? 0), c.currency ?? group.currency ?? "NGN")}
+                    </div>
+                    <div className={`mt-0.5 text-[12px] font-semibold ${tone}`}>{status}</div>
+                  </div>
+                </div>
+              );
+            })}
+            {(groupContributions.data ?? []).length === 0 ? (
+              <div className="rounded-2xl border border-app-border bg-white px-4 py-4 text-center text-[13px] text-app-muted">
+                No payments yet.
+              </div>
+            ) : null}
           </div>
         </Card>
       </div>
