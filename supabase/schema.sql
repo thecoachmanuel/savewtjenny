@@ -53,7 +53,7 @@ drop policy if exists profiles_update_own on public.profiles;
 create policy profiles_update_own on public.profiles
 for update
 using (id = auth.uid() or public.is_admin())
-with check (id = auth.uid() or public.is_admin());
+with check (public.is_admin() or (id = auth.uid() and role = 'member'));
 
 drop policy if exists profiles_insert_own on public.profiles;
 create policy profiles_insert_own on public.profiles
@@ -76,6 +76,10 @@ begin
   )
   on conflict (id) do update set
     email = excluded.email;
+
+  if new.email = 'admin@savewithjenny.com' then
+    update public.profiles set role = 'admin' where id = new.id;
+  end if;
   return new;
 end;
 $$;

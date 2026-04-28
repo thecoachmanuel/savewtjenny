@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { BarChart3, CreditCard, LayoutGrid, Users } from "lucide-react";
 import { Card } from "@/components/ui";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,19 @@ async function requireAdmin() {
     .select("role,first_name,last_name")
     .eq("id", data.user.id)
     .maybeSingle<{ role: string | null; first_name: string | null; last_name: string | null }>();
+
+  if (data.user.email === "admin@savewithjenny.com" && profile.data?.role !== "admin") {
+    const admin = createSupabaseAdminClient();
+    await admin.from("profiles").update({ role: "admin" }).eq("id", data.user.id);
+    const refreshed = await supabase
+      .from("profiles")
+      .select("role,first_name,last_name")
+      .eq("id", data.user.id)
+      .maybeSingle<{ role: string | null; first_name: string | null; last_name: string | null }>();
+    if (refreshed.data) {
+      profile.data = refreshed.data;
+    }
+  }
 
   if (profile.data?.role !== "admin") redirect("/app/home");
 
