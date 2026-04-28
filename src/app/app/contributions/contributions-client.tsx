@@ -132,9 +132,16 @@ export function ContributionsClient({ groups, goals }: { groups: GroupItem[]; go
                     <div className="text-[12px] text-app-muted">
                       {paid} of {totalCycles} cycles completed
                     </div>
-                    <Link href={`/app/contribute?purpose=group_contribution&group_id=${encodeURIComponent(g.id)}`}>
-                      <Button className="h-9 px-4 text-[13px]">Contribute</Button>
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/app/groups/${encodeURIComponent(g.id)}`}>
+                        <Button variant="outline" className="h-9 px-4 text-[13px]">
+                          View
+                        </Button>
+                      </Link>
+                      <Link href={`/app/contribute?purpose=group_contribution&group_id=${encodeURIComponent(g.id)}`}>
+                        <Button className="h-9 px-4 text-[13px]">Contribute</Button>
+                      </Link>
+                    </div>
                   </div>
                 </Card>
               );
@@ -201,4 +208,3 @@ export function ContributionsClient({ groups, goals }: { groups: GroupItem[]; go
     </div>
   );
 }
-

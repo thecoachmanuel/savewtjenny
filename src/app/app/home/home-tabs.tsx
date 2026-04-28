@@ -28,6 +28,7 @@ type ActivityItem = {
   subtitle: string;
   amount: string | null;
   status: string | null;
+  href?: string;
 };
 
 export function HomeTabs({
@@ -227,8 +228,8 @@ export function HomeTabs({
                     : status === "Failed"
                       ? "text-app-danger"
                       : "text-amber-600";
-                return (
-                  <Card key={item.id} className="px-4 py-3">
+                const content = (
+                  <Card className="px-4 py-3 transition-colors hover:bg-app-bg active:bg-app-bg">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="h-10 w-10 rounded-xl bg-app-bg" />
@@ -253,6 +254,14 @@ export function HomeTabs({
                     </div>
                   </Card>
                 );
+
+                return item.href ? (
+                  <Link key={item.id} href={item.href} className="block">
+                    {content}
+                  </Link>
+                ) : (
+                  <div key={item.id}>{content}</div>
+                );
               })}
               {activity.length === 0 ? (
                 <div className="rounded-3xl border border-app-border bg-white px-5 py-6 text-center text-[13px] text-app-muted">
@@ -266,4 +275,3 @@ export function HomeTabs({
     </div>
   );
 }
-

@@ -24,6 +24,7 @@ type ActivityItem = {
   subtitle: string;
   amount: string | null;
   status: string | null;
+  href?: string;
 };
 
 export default async function HomePage() {
@@ -86,7 +87,7 @@ export default async function HomePage() {
   const userContribs = await supabase
     .from("contributions")
     .select(
-      "id,amount,currency,status,created_at,group_id,personal_goal_id,groups:groups(name),personal_goals:personal_goals(title)",
+      "id,amount,currency,status,created_at,group_id,personal_goal_id,paystack_reference,groups:groups(name),personal_goals:personal_goals(title)",
     )
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
@@ -100,6 +101,7 @@ export default async function HomePage() {
         created_at: string;
         group_id: string | null;
         personal_goal_id: string | null;
+        paystack_reference: string | null;
         groups: { name: string } | null;
         personal_goals: { title: string } | null;
       }>
@@ -123,6 +125,8 @@ export default async function HomePage() {
     >();
 
   const items: ActivityItem[] = [];
+  const seenIds = new Set<string>();
+  const seenReferences = new Set<string>();
 
   for (const c of userContribs.data ?? []) {
     const title = c.group_id
@@ -130,24 +134,44 @@ export default async function HomePage() {
       : c.personal_goal_id
         ? `Personal savings · ${c.personal_goals?.title ?? "Goal"}`
         : "Contribution";
-    items.push({
-      id: `contribution:${c.id}`,
-      ts: c.created_at,
-      title,
-      subtitle: c.status,
-      amount: formatMoney(Number(c.amount ?? 0), c.currency ?? "NGN"),
-      status: c.status,
-    });
+    const reference = c.paystack_reference ?? null;
+    const href = reference
+      ? `/app/receipt?reference=${encodeURIComponent(reference)}`
+      : c.group_id
+        ? `/app/groups/${encodeURIComponent(c.group_id)}`
+        : c.personal_goal_id
+          ? `/app/goals/${encodeURIComponent(c.personal_goal_id)}`
+          : undefined;
+
+    if (reference) seenReferences.add(reference);
+    const id = reference ? `receipt:${reference}` : `contribution:${c.id}`;
+    if (!seenIds.has(id)) {
+      seenIds.add(id);
+      items.push({
+        id,
+        ts: c.created_at,
+        title,
+        subtitle: reference ? reference : c.status,
+        amount: formatMoney(Number(c.amount ?? 0), c.currency ?? "NGN"),
+        status: c.status,
+        href,
+      });
+    }
   }
 
   for (const t of userTx.data ?? []) {
+    if (seenReferences.has(t.reference)) continue;
+    const id = `receipt:${t.reference}`;
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
     items.push({
-      id: `paystack:${t.reference}`,
+      id,
       ts: t.paid_at ?? t.created_at,
       title: "Payment · Paystack",
       subtitle: t.reference,
       amount: formatKobo(t.amount_kobo, t.currency ?? "NGN"),
       status: t.status ?? "pending",
+      href: `/app/receipt?reference=${encodeURIComponent(t.reference)}`,
     });
   }
 
@@ -163,6 +187,7 @@ export default async function HomePage() {
         subtitle: `${name}: ${m.message}`,
         amount: null,
         status: null,
+        href: `/app/groups/${encodeURIComponent(activeGroup.id)}`,
       });
     }
   }
