@@ -28,15 +28,11 @@ type ContributionRow = {
 
 export default async function GoalDetailPage({ params }: { params: { id: string } }) {
   const supabase = await createSupabaseServerClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
-  if (!user) notFound();
 
   const goalResult = await supabase
     .from("personal_goals")
     .select("id,title,description,currency,target_amount,saved_amount,target_date,status,created_at")
     .eq("id", params.id)
-    .eq("user_id", user.id)
     .maybeSingle<GoalRow>();
 
   if (!goalResult.data) notFound();
@@ -45,7 +41,6 @@ export default async function GoalDetailPage({ params }: { params: { id: string 
   const tx = await supabase
     .from("contributions")
     .select("id,amount,currency,status,created_at,paystack_reference")
-    .eq("user_id", user.id)
     .eq("personal_goal_id", goal.id)
     .order("created_at", { ascending: false })
     .limit(15)
@@ -154,4 +149,3 @@ export default async function GoalDetailPage({ params }: { params: { id: string 
     </div>
   );
 }
-
