@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { BarChart3, CreditCard, LayoutGrid, Users } from "lucide-react";
+import { BarChart3, CreditCard, LayoutGrid, Users, Wallet } from "lucide-react";
 import { Card } from "@/components/ui";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -84,13 +84,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <BarChart3 className="h-4 w-4 text-app-primary" />
               Groups
             </Link>
-            <Link
-              href="/admin/transactions"
-              className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold text-app-fg hover:bg-app-bg"
-            >
-              <CreditCard className="h-4 w-4 text-app-primary" />
-              Transactions
-            </Link>
+<Link
+  href="/admin/transactions"
+  className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold text-app-fg hover:bg-app-bg"
+>
+  <CreditCard className="h-4 w-4 text-app-primary" />
+  Transactions
+</Link>
+<Link
+  href="/admin/payouts"
+  className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold text-app-fg hover:bg-app-bg"
+>
+  <Wallet className="h-4 w-4 text-app-primary" />
+  Payouts
+</Link>
           </div>
         </Card>
 

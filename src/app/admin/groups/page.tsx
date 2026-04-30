@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Card } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import CycleManager from "./[id]/cycle-manager";
+import GroupAnalytics from "./group-analytics";
 
 type GroupRow = {
   id: string;
@@ -68,11 +70,21 @@ export default async function AdminGroupsPage({
     }
     return { idx, start, end };
   }
+  // Fetch groups with payout information
   const { data } = await supabase
     .from("groups")
-    .select("id,name,currency,contribution_amount,cycle_frequency,total_cycles,invite_code,created_at")
+    .select(`
+      id,
+      name,
+      currency,
+      contribution_amount,
+      cycle_frequency,
+      total_cycles,
+      invite_code,
+      created_at,
+      group_payouts (status)
+    `)
     .order("created_at", { ascending: false })
-    .limit(50)
     .limit(50)
     .returns<GroupRow[]>();
 
@@ -187,10 +199,18 @@ export default async function AdminGroupsPage({
       {selectedGroup ? (
         <Card className="overflow-hidden">
           <div className="px-5 py-4">
-            <div className="text-[14px] font-semibold text-app-fg">{selectedGroup.name}</div>
-            <div className="mt-1 text-[12px] text-app-muted">
-              {memberCount} members · {paidCount} paid contributions · Estimated cycle #{estimatedCycle}
-            </div>
+<div className="text-[14px] font-semibold text-app-fg">{selectedGroup.name}</div>
+        <div className="mt-1 text-[12px] text-app-muted">
+          {memberCount} members · {paidCount} paid contributions · Estimated cycle #{estimatedCycle}
+        </div>
+        <div className="mt-2">
+          <Link 
+            href={`/admin/groups/${selectedGroupId}/payouts`} 
+            className="text-[13px] font-semibold text-app-primary"
+          >
+            View Payout History →
+          </Link>
+        </div>
             {cycleWindow ? (
               <div className="mt-1 text-[12px] text-app-muted">
                 Cycle #{currentCycleNumber} ·{" "}
@@ -282,8 +302,51 @@ export default async function AdminGroupsPage({
                   </div>
                 ) : null}
               </div>
-            </div>
+</div>
           </div>
+
+          {selectedGroup && (
+            <div className="px-5 pb-5">
+              <GroupAnalytics
+                groupId={selectedGroup.id}
+                groupName={selectedGroup.name}
+                currency={selectedGroup.currency}
+                contributionAmount={selectedGroup.contribution_amount}
+                totalCycles={selectedGroup.total_cycles}
+                cycleFrequency={selectedGroup.cycle_frequency}
+                memberCount={memberCount}
+                paidCount={paidCount}
+                currentCycle={currentCycleNumber}
+                totalContributions={paidCount * selectedGroup.contribution_amount}
+                totalPayouts={0} // This would need to be calculated from actual payouts
+                upcomingPayouts={Math.max(0, selectedGroup.total_cycles - currentCycleNumber + 1)}
+              />
+            </div>
+          )}
+
+          {selectedGroup && members && (
+            <div className="px-5 pb-5">
+              <CycleManager
+                groupId={selectedGroup.id}
+                groupName={selectedGroup.name}
+                currency={selectedGroup.currency}
+                contributionAmount={selectedGroup.contribution_amount}
+                totalCycles={selectedGroup.total_cycles}
+                cycleFrequency={selectedGroup.cycle_frequency}
+                members={(members.data ?? []).map(m => ({
+                  user_id: m.user_id,
+                  first_name: m.profiles?.first_name ?? null,
+                  last_name: m.profiles?.last_name ?? null,
+                  position: m.position
+                }))}
+                currentCycle={currentCycleNumber}
+                onCycleUpdate={(newCycle) => {
+                  // In a real implementation, this would update the cycle
+                  console.log("Cycle updated to:", newCycle);
+                }}
+              />
+            </div>
+          )}
         </Card>
       ) : null}
     </div>

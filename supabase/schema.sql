@@ -352,6 +352,29 @@ create policy paystack_transactions_select_own on public.paystack_transactions
 for select
 using (user_id = auth.uid() or public.is_admin());
 
+create table if not exists public.group_payouts (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid not null references public.groups(id) on delete cascade,
+  cycle_number int not null,
+  recipient_user_id uuid not null references public.profiles(id) on delete cascade,
+  amount numeric not null,
+  currency text not null default 'NGN',
+  status text not null default 'pending', -- pending, processing, completed, failed
+  initiated_by uuid references public.profiles(id) on delete set null,
+  initiated_at timestamptz not null default now(),
+  processed_at timestamptz,
+  failure_reason text,
+  reference text
+);
+
+alter table public.group_payouts enable row level security;
+
+drop policy if exists group_payouts_admin on public.group_payouts;
+create policy group_payouts_admin on public.group_payouts
+for all
+using (public.is_admin())
+with check (public.is_admin());
+
 create table if not exists public.kyc_documents (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
