@@ -4,6 +4,8 @@ import { AppHeader } from "@/components/app-header";
 import { Button, Card, Divider } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { RequestPayout } from "./request-payout";
+import { PayoutHistory } from "./payout-history";
 
 type GoalRow = {
   id: string;
@@ -145,6 +147,18 @@ export default async function GoalDetailPage({ params }: { params: { id: string 
             ) : null}
           </div>
         </div>
+        
+        {goal.status === "completed" && (
+          <RequestPayout 
+            goalId={goal.id}
+            goalTitle={goal.title}
+            savedAmount={saved}
+            currency={goal.currency ?? "NGN"}
+            onSuccess={() => {}}
+          />
+        )}
+        
+        <PayoutHistory goalId={goal.id} />
       </div>
     </div>
   );
